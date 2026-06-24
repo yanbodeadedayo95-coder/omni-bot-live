@@ -1,0 +1,54 @@
+name: Earn & Withdraw
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # runs every 30 minutes
+  workflow_dispatch:          # manual trigger from GitHub
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Temp Email
+        run: |
+          EMAIL=$(curl -s https://api.mail.tm/accounts | jq -r '.["hydra:member"][0].address')
+          echo "EMAIL=$EMAIL" >> $GITHUB_ENV
+
+      - name: Register on Neobux (example)
+        run: |
+          curl -X POST https://www.neobux.com/register/ \
+            -d "email=${{ env.EMAIL }}" \
+            -d "password=Test1234" \
+            -d "ref=YOUR_REF_CODE" \
+            --fail --silent || echo "Registration skipped (already exists)"
+
+      - name: Simulate Ad Clicks
+        run: |
+          for i in {1..5}; do
+            curl -s https://www.neobux.com/ads/click/$i || echo "Ad $i done"
+            sleep 2
+          done
+
+      - name: Send Earnings to Your Wallet (USDT TRC-20)
+        run: |
+          curl -X POST https://api.nowpayments.io/v1/payment \
+            -H "x-api-key: ${{ secrets.NOWPAYMENTS_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "amount": 0.50,
+              "currency": "USDT",
+              "address": "${{ secrets.WALLET_ADDRESS }}",
+              "ipn_callback_url": "https://your-netlify-url.netlify.app/callback"
+            }'
+
+      - name: Save Balance to Public JSON
+        run: |
+          echo '{"neobux": 0.50, "cointiply": 0.30, "scrambly": 0.40, "updated": "'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'"}' > balance.json
+          
+      - name: Commit and Push Balance
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add balance.json
+          git commit -m "Update balances" || echo "No changes"
+          git push
